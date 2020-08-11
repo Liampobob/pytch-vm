@@ -45,6 +45,16 @@ $(document).ready(function() {
 
     ////////////////////////////////////////////////////////////////////////////////
     //
+    // Editor server
+
+    const editor_server = (() => {
+        return {
+        };
+    })();
+
+
+    ////////////////////////////////////////////////////////////////////////////////
+    //
     // Very rudimentary auto-completion
     //
     // Only complete "pytch." and "self.", with hard-coded list of options based
