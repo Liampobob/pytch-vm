@@ -64,6 +64,15 @@ $(document).ready(function() {
                 console.log("error from WebSocket");
                 active_ws = null;
             };
+
+            active_ws.onmessage = (event) => {
+                console.log("got message from editor");
+                let msg = JSON.parse(event.data);
+
+                ace_editor.setValue(msg.code);
+                ace_editor.clearSelection();
+                build_button.visibly_build(true);
+            };
         };
 
         return {
