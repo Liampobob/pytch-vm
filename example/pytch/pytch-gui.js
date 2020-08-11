@@ -1223,6 +1223,8 @@ $(document).ready(function() {
                                        $("#tab-pane-tutorial")[0]);
     };
 
+    editor_server.connect_to_editor();
+
     // Temporary while developing.  The idea is that the author will create a
     // symlink from DEFAULT to the actual tutorial they are working on.
     launch_tutorial("tutorials/DEFAULT").then(
