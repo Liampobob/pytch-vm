@@ -48,6 +48,8 @@ $(document).ready(function() {
     // Editor server
 
     const editor_server = (() => {
+        let active_ws = null;
+
         return {
         };
     })();
