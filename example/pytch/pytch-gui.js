@@ -50,6 +50,17 @@ $(document).ready(function() {
     const editor_server = (() => {
         let active_ws = null;
 
+        const connect_to_editor = (evt) => {
+            console.log("connect_to_editor(): entering");
+
+            if (active_ws !== null) {
+                console.log("already connected");
+                return;
+            }
+
+            active_ws = new WebSocket("ws://127.0.0.1:4111/");
+        };
+
         return {
         };
     })();
