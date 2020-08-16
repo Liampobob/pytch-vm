@@ -8,7 +8,7 @@ html { height: 100%; }
 body {
     height: 100%;
     background-color: #dde;
-    margin: 0px 8px;
+    padding: 0px 8px;
     font-family: 'Roboto', sans-serif;
     display: flex;
     justify-content: space-between;
@@ -22,6 +22,7 @@ body {
 }
 
 #editor {
+    display: none;  /* until the user starts doing something */
     border: 1px solid lightgray;
     margin: 0px;
     flex-grow: 1;
@@ -65,6 +66,24 @@ body {
 
 
 /******************************************************************************/
+/*
+ * Start screen
+ */
+
+#start-options-container {
+    flex-grow: 1;
+}
+
+#start-options {
+    margin: 1ex 4em;
+}
+
+#start-options h2 { text-align: center; margin-top: 2rem; }
+#start-options p { text-align: center; }
+#start-options div.button-group { margin: 0px 3em; }
+
+
+/******************************************************************************/
 
 #stage-controls > div {
     cursor: pointer;
@@ -79,17 +98,17 @@ body {
 
 #stage-controls > div > p {
     text-align: center;
-    color: black;
     margin: 8px;
 }
 
 #build-button { min-width: 8em; }
-#green-flag, #red-stop, #info-menu { width: 48px; }
+#green-flag, #red-stop { width: 48px; }
+#info-menu { width: 6em; }
 
-#build-button { background-color: lightgreen; }
-#green-flag { background-color: green; }
-#red-stop { background-color: red; }
-#info-menu { background-color: #ff8; }
+#build-button { background-color: lightgreen; color: black; }
+#green-flag { background-color: green; color: black; }
+#red-stop { background-color: red; color: black; }
+#info-menu { background-color: #33e; color: white; }
 
 
 /******************************************************************************/
@@ -98,7 +117,7 @@ body {
     margin: 8px 16px 0px 16px;
     padding: 8px;
     background-color: #eee;
-    font-size: 120%;
+    font-size: 1.1rem;
     color: #666;
     cursor: pointer;
     border-radius: 8px 8px 0px 0px;
@@ -193,6 +212,102 @@ body {
 
 
 /******************************************************************************/
+/*
+ * "My projects" tab
+ */
+
+#tab-pane-project-list .placeholder-while-no-projects {
+    margin: 3ex 3em;
+}
+
+.project-list-container {
+    width: 100%;
+    margin: 3rem;
+}
+
+#project-list {
+    width: 100%;
+}
+
+.pytch-start-info-alert {
+    display: none;
+}
+
+.project-card {
+    cursor: pointer;
+    user-select: none;
+}
+
+/******************************************************************************/
+/*
+ * "Project info" tab
+ */
+
+#tab-pane-project-info .placeholder-until-project-loaded {
+    margin: 3ex 3em;
+}
+
+.project-info-container {
+    width: 100%;
+}
+
+.active-project-info {
+    width: 100%;
+    margin: 3ex 3em;
+}
+
+
+/******************************************************************************/
+/*
+ * Project management
+ */
+
+/* File input implementation courtesy of
+ *
+ *     https://www.benmarshall.me/styling-file-inputs/
+ *
+ */
+[type="file"] {
+  border: 0;
+  clip: rect(0, 0, 0, 0);
+  height: 1px;
+  overflow: hidden;
+  padding: 0;
+  position: absolute !important;
+  white-space: nowrap;
+  width: 1px;
+}
+
+/* TODO: This is copy/pasted from UIkit; is there a better way? */
+
+[type="file"] + label {
+  background-color: #1e87f0;
+  color: #fff;
+  cursor: pointer;
+  user-select: none;
+  display: inline-block;
+  text-transform: uppercase;
+  font-size: 0.875rem;
+  line-height: 38px;
+  padding: 0 30px;
+}
+
+[type="file"]:focus + label,
+[type="file"] + label:hover {
+    background-color: #0f7ae5;
+}
+
+[type="file"]:focus + label {
+  outline: 1px dotted #000;
+}
+
+.active-project-info {
+    display: none;
+}
+
+
+/******************************************************************************/
+
 
 /* TODO: Use this more generally? */
 .click-target {
@@ -221,6 +336,7 @@ body {
 }
 
 #tab-pane-tutorial-list .tutorial-summary h1 {
+    margin-top: 0.5ex;
     font-size: 133%;
 }
 
@@ -296,10 +412,11 @@ body {
     color: black;
     text-align: left;
     margin-left: 0px;
+    margin-top: 1.5rem;
 }
 
 #tab-pane-tutorial .chapter-content h2 {
-    font-size: 125%;
+    font-size: 150%;
     margin: 2ex 0px 1ex 0px;
 }
 
@@ -343,6 +460,7 @@ div.patch-container > h1.decoration {
     margin: 0px;
     background-color: #f7f7f7;
     text-align: left;
+    font-weight: bold;
     font-size: 100%;
     color: #000;
 }
@@ -350,6 +468,7 @@ div.patch-container > h1.decoration {
 div.patch, div.patch > table {
     background-color: #f7f7f7;
     border-spacing: 0px;
+    padding: 0.5rem 1.0rem;
     margin: 0px;
 }
 

@@ -1,6 +1,7 @@
 // pytch-gui.js
 
 $(document).ready(function() {
+    console.log("pytch-gui: HELLO!");
 
     ////////////////////////////////////////////////////////////////////////////////
     //
@@ -9,6 +10,16 @@ $(document).ready(function() {
     const PytchAssetLoadError = (...args) => {
         return new Sk.pytchsupport.PytchAssetLoadError(...args);
     }
+
+    const getElt = (id) => document.getElementById(id);
+
+    const is_undefined = (x) => (typeof x === "undefined");
+
+
+    ////////////////////////////////////////////////////////////////////////////////
+    //
+
+    const Initial_Pytch_Code = "import pytch\n\n";
 
 
     ////////////////////////////////////////////////////////////////////////////////
@@ -50,7 +61,7 @@ $(document).ready(function() {
     const live_reload_client = (() => {
         let active_ws = null;
 
-        const connect_to_server = (evt) => {
+        const connect_to_server = () => {
             console.log("connect_to_server(): entering");
 
             if (active_ws !== null) {
@@ -93,6 +104,512 @@ $(document).ready(function() {
 
         return {
             connect_to_server,
+        };
+    })();
+
+
+    ////////////////////////////////////////////////////////////////////////////////
+    //
+    // Project persistence
+
+    const persistence = (() => {
+        const db = new Dexie("pytch");
+        //db.delete();
+
+        // TODO: Could we make the code_texts table content-indexes too, i.e.,
+        // by SHA256 or similar?  Would cut down on redundancy with copies of
+        // tutorial texts, etc.
+
+        db.version(1).stores({
+            projects: "++id",
+            project_code_versions: "++id, project_id", // Also: seqnum, mtime, code_text_id
+            code_texts: "++id", // Also: text
+            assets: "oid", // Also: mime_type, data
+            project_assets: "++id, project_id", // Also: name_in_project, asset_oid
+        });
+
+        const all_table_names = [
+            "projects",
+            "project_code_versions",
+            "code_texts",
+            "assets",
+            "project_assets",
+        ];
+
+        const create_project = async (name) => {
+            const new_project_id = await db.projects.add({name});
+            const starting_text_id = await db.code_texts.add({
+                text: Initial_Pytch_Code,
+            });
+
+            await db.project_code_versions.add({
+                project_id: new_project_id,
+                seqnum: 1,
+                mtime: Date.now(),
+                code_text_id: starting_text_id,
+            });
+
+            return new_project_id;
+        };
+
+        const latest_code_version = async (project_id) => {
+            const all_versions = await (db.project_code_versions
+                                        .where("project_id")
+                                        .equals(project_id)
+                                        .sortBy("seqnum"));
+            console.log(all_versions);
+            return all_versions[all_versions.length - 1];
+        };
+
+        const latest_code = async (project_id) => {
+            const version = await latest_code_version(project_id);
+            const code_text_id = version.code_text_id;
+            const code_text = await db.code_texts.get(code_text_id);
+            console.log(code_text);
+            return code_text.text;
+        };
+
+        const create_new_code_text_version = async (project_id, text) => {
+            // TODO: Tighten transaction scope in terms of which tables it needs?
+            const ids = await db.transaction("rw", all_table_names, async () => {
+                const current_version = await latest_code_version(project_id);
+                const new_seqnum = current_version.seqnum + 1;
+                const text_id = await db.code_texts.add({text});
+                const version_id = await db.project_code_versions.add({
+                    project_id,
+                    seqnum: new_seqnum,
+                    mtime: Date.now(),
+                    code_text_id: text_id,
+                });
+                return {text_id, version_id};
+            });
+
+            return ids;
+        };
+
+        // TODO: Think about pagination, scaling when the user has a large
+        // number of projects?
+        const all_projects = async () => {
+            let projects = await db.projects.toArray();
+            return projects;
+        };
+
+        const str_from_hash = (hash) => {
+            const hash_u8s = new Uint8Array(hash);
+            let str = "";
+            for (let i = 0; i < hash_u8s.length; ++i) {
+                let s = hash_u8s[i].toString(16);
+                if (s.length == 1)
+                    s = "0" + s;
+                str += s;
+            }
+            return str;
+        }
+
+        const ensure_have_asset = async (mime_type, data) => {
+            console.log(typeof data, data);
+
+            const hash = await window.crypto.subtle.digest({name: "SHA-256"}, data);
+            const oid = str_from_hash(hash);
+
+            const maybe_existing_asset = await db.assets.get(oid);
+
+            if (! is_undefined(maybe_existing_asset)) {
+                console.log("ensure_have_asset(): returning existing", oid);
+                return oid;
+            }
+
+            const new_asset = await db.assets.add({oid, mime_type, data});
+            console.log("ensure_have_asset(): returning new", oid);
+            return oid;
+        }
+
+        const project_has_named_asset = async (project_id, name) => {
+            const existing_assets = await (db.project_assets
+                                           .where("project_id")
+                                           .equals(project_id)
+                                           .and(pa => pa.name == name)
+                                           .toArray());
+
+            const n_existing = existing_assets.length;
+
+            if (n_existing > 1)
+                console.log("EEK! More than one!");
+
+            console.log(`found ${n_existing} assets named "${name}" in ${project_id}`);
+
+            const has = (n_existing >= 1);
+            console.log("project_has_named_asset():", has);
+            return has;
+        };
+
+        const add_project_asset = async (project_id, name, mime_type, data) => {
+            console.log("add_project_asset():", project_id, name);
+            const already_have = await project_has_named_asset(project_id, name);
+            console.log("add_project_asset():", already_have)
+            if (already_have)
+                return {
+                    ok: false,
+                    reason: `Project already has asset "${name}"`,
+                };
+
+            console.log("add_project_asset(): name not dupd; adding data", data);
+
+            const asset_oid = await ensure_have_asset(mime_type, data);
+            const project_asset_id = await db.project_assets.add({project_id, name, asset_oid});
+
+            return {
+                ok: true,
+                project_asset_id,
+            };
+        };
+
+        const delete_project_asset = async (project_id, asset_oid) => {
+            const all_assets = await all_project_assets(project_id);
+            const matching_assets = all_assets.filter(pa => pa.asset_oid == asset_oid);
+
+            if (matching_assets.length > 1)
+                throw Error(`duplicate asset "${asset_oid}" in ${project_id} (should not happen)`);
+            if (matching_assets.length == 0)
+                throw Error(`asset "${asset_oid}" not found in ${project_id}`);
+
+            const project_asset = matching_assets[0];
+            await db.project_assets.delete(project_asset.id);
+        };
+
+        const all_project_assets = async (project_id) => {
+            const project_assets = (db.project_assets
+                                    .where("project_id")
+                                    .equals(project_id)
+                                    .toArray());
+            return project_assets;
+        };
+
+        const asset_blob = async (oid) => {
+            const asset = await db.asset.get(oid);
+            const blob = new Blob([asset.data], {type: asset.mime_type});
+            return blob;
+        };
+
+        const get_project_asset_by_name = async (project_id, name) => {
+            const all_assets = await all_project_assets(project_id);
+            const matching_assets = all_assets.filter(pa => pa.name == name);
+
+            if (matching_assets.length > 1)
+                throw Error(`duplicate asset "${name}" in ${project_id} (should not happen)`);
+            if (matching_assets.length == 0)
+                throw Error(`asset "${name}" not found in ${project_id}`);
+
+            const project_asset = matching_assets[0];
+            const asset = await db.assets.get(project_asset.asset_oid);
+
+            return asset;
+        };
+
+        return {
+            create_project,
+            all_projects,
+            latest_code,
+            create_new_code_text_version,
+            add_project_asset,
+            delete_project_asset,
+            all_project_assets,
+            get_project_asset_by_name,
+        };
+    })();
+
+
+    ////////////////////////////////////////////////////////////////////////////////
+    //
+    // Start page
+
+    const start_page = (() => {
+        $("#start-create-project").click(() => {
+            $(".pytch-start-info-alert").hide();
+            projects_controller.run_modal_creation();
+        });
+
+        $("#start-load-existing-project").click(() => {
+            $(".pytch-start-info-alert").hide();
+            $("#load-existing-alert").show();
+            make_tab_current("project-list");
+        });
+
+        $("#start-follow-tutorial").click(() => {
+            $(".pytch-start-info-alert").hide();
+            $("#follow-tutorial-alert").show();
+            make_tab_current("tutorial-list");
+        });
+
+        return {
+        };
+    })();
+
+
+    ////////////////////////////////////////////////////////////////////////////////
+    //
+    // Project and project-set control
+
+    // TODO: Should we inject the dependency on the editor?  Bit clunky to have
+    // the global "ace_editor" appearing in there.
+
+    const projects_controller = (() => {
+        let active_project_id = null;
+
+        const activate_project = async (project_id) => {
+            active_project_id = project_id;
+
+            console.log("activate_project():", project_id);
+
+            const code_text = await persistence.latest_code(project_id);
+
+            ace_editor.setValue(code_text);
+            ace_editor.clearSelection();
+
+            refresh_project_info();
+        };
+
+        const delete_project_asset = async (asset_oid) => {
+            await persistence.delete_project_asset(active_project_id, asset_oid);
+        };
+
+        const refresh_project_info = async () => {
+            console.log(`refresh_project_info(): entering for ${active_project_id}`);
+
+            $("#start-options-container").hide();
+            $("#editor").show();
+
+            $(".placeholder-until-project-loaded").hide();
+            $(".active-project-info").show();
+
+            // TODO: Update Project info pane with name and assets.  Possibly
+            // ability to revert to previous versions.  Needs thought on how
+            // this works: is it just a growing collection of snapshots?  A
+            // tree?  A list?
+
+            const all_assets = await persistence.all_project_assets(active_project_id);
+            console.log(all_assets);
+
+            const asset_list_div = getElt("project-info-asset-list");
+            asset_list_div.innerHTML = "";
+            all_assets.forEach(a => {
+                const asset_div = document.createElement("div");
+                asset_div.innerHTML = (
+                    `<code>${a.name}</code> [${a.asset_oid}]`
+                        + '<button class="uk-button uk-button-danger uk-button-small">Delete</button>');
+                $(asset_div.querySelectorAll("button")).click(() => delete_asset(a.asset_oid));
+                asset_list_div.appendChild(asset_div);
+            });
+
+            // TODO: Put project name in tab itself (not pane)?
+            make_tab_current("project-info");
+        };
+
+        const delete_asset = async (asset_oid) => {
+            await persistence.delete_project_asset(active_project_id, asset_oid);
+            await refresh_project_info();
+        };
+
+        const save_code_text = async () => {
+            if (active_project_id === null) {
+                console.log("save_code_text(): no active project");
+                return;
+            }
+
+            const text = ace_editor.getValue();
+            const ids = await persistence.create_new_code_text_version(active_project_id, text);
+            console.log("saved new code text with IDs", ids);
+
+            UIkit.notification({
+                message: `Saved! [ ${ids.text_id} / ${ids.version_id} ]"`,
+                status: 'success',
+                pos: 'top-center',
+                timeout: 3000,
+            });
+        };
+
+        const create_from_modal = async () => {
+            console.log("create_from_modal");
+
+            const name = getElt("new-project-name").value;
+            const id = await persistence.create_project(name);
+            console.log(`create_from_modal: created project with id ${id}`);
+
+            UIkit.notification({
+                message: `Created project "${name}" [${id}]!`,
+                status: 'success',
+                pos: 'top-center',
+                timeout: 3000,
+            });
+
+            await my_projects.populate_div(getElt("project-list"));
+            activate_project(id);
+        };
+
+        const create_project_modal = UIkit.modal(getElt("create-project-modal"));
+
+        const run_modal_creation = () => {
+            create_project_modal.show();
+        };
+
+        const read_arraybuffer = (file) => {
+            return new Promise((resolve, reject) => {
+                const fr = new FileReader();
+                fr.onerror = reject;
+                fr.onload = () => resolve(fr.result);
+                fr.readAsArrayBuffer(file);
+            });
+        };
+
+        const add_asset_file_input = getElt("add-asset-file-input");
+
+        const add_asset_from_modal = async () => {
+            console.log("add_asset_from_modal(): entering");
+
+            const file = add_asset_file_input.files[0];
+            const file_buffer = await read_arraybuffer(file);
+
+            const addition_result
+                  = await persistence.add_project_asset(active_project_id,
+                                                        file.name,
+                                                        file.type,
+                                                        file_buffer);
+
+            console.log(addition_result);
+
+            if (addition_result.ok)
+                UIkit.notification({
+                    message: `Added file "${file.name}" [ ${addition_result.project_asset_id} ]`,
+                    status: 'primary',
+                    pos: 'top-center',
+                    timeout: 3000,
+                });
+            else
+                UIkit.notification({
+                    message: `Could not add "${file.name}": ${addition_result.reason}`,
+                    status: 'warning',
+                    pos: 'top-center',
+                    timeout: 3000,
+                });
+
+            refresh_project_info();
+
+            console.log("add_asset_from_modal(): leaving");
+        };
+
+        const add_asset_modal = UIkit.modal(getElt("add-asset-modal"));
+
+        const run_modal_asset_addition = () => {
+            add_asset_modal.show();
+        };
+
+        // TODO: Show the user what file they've selected.
+
+        $("#asset-add-button").click(add_asset_from_modal);
+
+        const asset_from_name = async (name) => {
+            const asset = await persistence.get_project_asset_by_name(active_project_id,
+                                                                      name);
+            return asset;
+        };
+
+        const async_load_image = async (url) => {
+            console.log("projects_controller.async_load_image():", url);
+
+            // HEM HEM.
+            const name = url.replace(/^project-assets\//, "");
+            const asset = await asset_from_name(name);
+            console.log("project async_load_image asset", asset);
+            const asset_blob = new Blob([asset.data], {type: asset.mime_type});
+            const data_url = URL.createObjectURL(asset_blob);
+            console.log("project async_load_image", asset_blob, data_url);
+            const img = await raw_async_load_image(data_url);
+
+            // TODO: Revoke object URL.
+
+            return img;
+        };
+
+        const async_load_buffer = async (tag, url) => {
+            console.log("projects_controller.async_load_sound():", tag, url);
+            const name = url.replace(/^project-assets\//, "");
+            const asset = await asset_from_name(name);
+            console.log("project async_load_image asset", asset);
+            return asset.data;
+
+        };
+
+        // Button within modal we're in charge of:
+        $("#new-project-create").click(create_from_modal);
+
+        return {
+            run_modal_creation,
+            run_modal_asset_addition,
+            activate_project,
+            save_code_text,
+            async_load_image,
+            async_load_buffer,
+        };
+    })();
+
+
+    ////////////////////////////////////////////////////////////////////////////////
+    //
+    // "Pytch" menu
+
+    const pytch_menu = (() => {
+        $("#pytch-new-project").click(projects_controller.run_modal_creation);
+        $("#pytch-save-project").click(projects_controller.save_code_text);
+
+        return {
+        };
+    })();
+
+
+    ////////////////////////////////////////////////////////////////////////////////
+    //
+    // "My Projects" tab
+
+    const my_projects = (() => {
+        const populate_div = async (div) => {
+            const projects = await persistence.all_projects();
+            let have_at_least_one_project = false;
+
+            div.innerHTML = "";
+
+            projects.forEach(p => {
+                have_at_least_one_project = true;
+                let card_elt = document.createElement("div");
+                $(card_elt).addClass("uk-width-1-3");
+                card_elt.innerHTML = (
+                    ('<div class="uk-card uk-card-primary uk-card-hover project-card">'
+                     + '<div class="uk-card-header">'
+                     + `<h3 class="uk-card-title">${p.name}</h3></div>`
+                     + `<div class="uk-card-body"><p>Write a docstring to get a summary for ${p.name}.`
+                     + ` Until you do, blah blah blah blah</p></div>`
+                     + '</div>'));
+                $(card_elt).click(() => projects_controller.activate_project(p.id));
+                div.appendChild(card_elt);
+            });
+
+            if (have_at_least_one_project)
+                $(".placeholder-while-no-projects").hide();
+        };
+
+        return {
+            populate_div,
+        };
+    })();
+
+
+    ////////////////////////////////////////////////////////////////////////////////
+    //
+    // "Project info" tab
+
+    const project_info = (() => {
+        $("#add-asset-button").click(projects_controller.run_modal_asset_addition);
+
+        return {
         };
     })();
 
@@ -196,6 +713,11 @@ $(document).ready(function() {
 
         $(`#tab-header-${tab_nub}`).addClass("current");
         $(`#tab-pane-${tab_nub}`).addClass("current");
+
+        // Ugly but otherwise it doesn't get the layout right on the first click
+        // to this tab.
+        if (tab_nub == "project-list")
+            UIkit.update(getElt("project-list"));
     });
 
     $("#info-panel-tabs p").click(make_tab_current_via_evt);
@@ -208,7 +730,7 @@ $(document).ready(function() {
     class TextPane {
         constructor(initial_html, tab_nub) {
             this.initial_html = initial_html;
-            this.content_elt = document.getElementById(`tab-content-${tab_nub}`);
+            this.content_elt = getElt(`tab-content-${tab_nub}`);
             this.reset();
         }
 
@@ -704,7 +1226,7 @@ $(document).ready(function() {
     //
     // Provide 'asynchronous load image' interface
 
-    const async_load_image = (url =>
+    const raw_async_load_image = (url =>
         new Promise((resolve, reject) => {
             let img = new Image();
             img.onload = (() => resolve(img));
@@ -778,6 +1300,12 @@ $(document).ready(function() {
         }
 
         async async_load_sound(tag, url) {
+            const raw_data0 = await projects_controller.async_load_buffer(tag, url);
+            let audio_buffer0 = await this.audio_context.decodeAudioData(raw_data0);
+            return new BrowserSound(this, tag, audio_buffer0);
+
+            ////////////////////////////////////////////////////////////////
+
             let err_detail = null;
             let response = null;
 
@@ -846,8 +1374,8 @@ $(document).ready(function() {
     // Report errors
 
     let errors_info_pane = (() => {
-        let explanation_p = document.getElementById("exceptions-explanation");
-        let container_div = document.getElementById("exceptions-container");
+        let explanation_p = getElt("exceptions-explanation");
+        let container_div = getElt("exceptions-container");
 
         // What 'context', if any, are we currently showing the rich list of
         // errors for?  If none (represented as null), we are showing the
@@ -943,7 +1471,10 @@ $(document).ready(function() {
         };
 
         const append_error = (err, thread_info) => {
+            console.log("append_error", err);
+
             let context = (thread_info === null ? "build" : "run");
+            
             ensure_have_error_list(context);
 
             let err_li = document.createElement("li");
@@ -978,9 +1509,10 @@ $(document).ready(function() {
                     break;
                 }
                 default:
-                    throw Error("expecting empty or single-frame traceback"
+                    console.log(err, thread_info);
+                    /* throw Error("expecting empty or single-frame traceback"
                                 + " for build error"
-                                + ` but got ${n_traceback_frames}-frame one`);
+                                + ` but got ${n_traceback_frames}-frame one`); */
                 }
 
                 let err_message_ul = err_li.querySelector("ul.err-message");
@@ -1248,7 +1780,7 @@ $(document).ready(function() {
         read: builtinRead,
         output: (txt => stdout_info_pane.append_text(txt)),
         pytch: {
-            async_load_image: async_load_image,
+            async_load_image: projects_controller.async_load_image,
             keyboard: browser_keyboard,
             mouse: browser_mouse,
             on_exception: report_uncaught_exception,
@@ -1325,6 +1857,11 @@ $(document).ready(function() {
 
     live_reload_client.connect_to_server();
 
-    tutorials_index.populate().then(
+    const init_everything = async () => {
+        await tutorials_index.populate();
+        await my_projects.populate_div(getElt("project-list"));
+    };
+
+    init_everything().then(
         () => window.requestAnimationFrame(one_frame));
 });

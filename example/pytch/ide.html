@@ -2,6 +2,9 @@
 <html>
   <head>
     <title>Pytch</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <link rel="stylesheet" href="uikit-based-site.css" />
+
     <script src="//ajax.googleapis.com/ajax/libs/jquery/3.4.1/jquery.min.js" type="text/javascript" charset="utf-8"></script>
     <script src="//ajaxorg.github.io/ace-builds/src-min-noconflict/ace.js" type="text/javascript" charset="utf-8"></script>
     <script src="//ajaxorg.github.io/ace-builds/src-min-noconflict/ext-language_tools.js" type="text/javascript" charset="utf-8"></script>
@@ -9,12 +12,34 @@
     <script src="skulpt-stdlib.js" type="text/javascript" charset="utf-8"></script>
     <script src="pytch-gui.js" type="text/javascript" charset="utf-8"></script>
     <script src="jquery.dropdown.js" type="text/javascript" charset="utf-8"></script>
+
+    <script src="vendor/uikit/3.5.6/js/uikit.js"></script>
+    <script src="vendor/uikit/3.5.6/js/uikit-icons.min.js"></script>
     <link type="text/css" rel="stylesheet" media="screen" href="pytch-ide.css">
     <link type="text/css" rel="stylesheet" href="jquery.dropdown.css">
     <link rel="stylesheet" href="https://fonts.googleapis.com/css?family=Roboto:400,700&display=swap">
+
+    <script src="vendor/dexie/3.0.2/dexie.min.js"></script>
   </head>
   <body>
     <div id="code-and-stage">
+      <div id="start-options-container">
+        <div id="start-options">
+          <h2>Pytch</h2>
+          <p>What would you like to do?</p>
+          <div class="button-group">
+            <p><button id="start-create-project" class="uk-button uk-button-primary uk-width-1-1">Create a new project</button></p>
+            <p><button id="start-load-existing-project" class="uk-button uk-button-primary uk-width-1-1">Work on a saved project</button></p>
+            <p><button id="start-follow-tutorial" class="uk-button uk-button-primary uk-width-1-1">Follow a tutorial</button></p>
+            <div id="load-existing-alert" uk-alert class="uk-alert-success pytch-start-info-alert">
+              <p>Choose one of your projects from the list below!</p>
+            </div>
+            <div id="follow-tutorial-alert" uk-alert class="uk-alert-success pytch-start-info-alert">
+              <p>Choose a tutorial from the list below!</p>
+            </div>
+          </div>
+        </div>
+      </div>
       <div id="editor">
       </div>
       <div id="stage-with-buttons">
@@ -22,13 +47,24 @@
           <div id="build-button"><p>BUILD</p></div>
           <div id="green-flag"><p>&nbsp;</p></div>
           <div id="red-stop"><p>&nbsp;</p></div>
-          <div id="info-menu"><p>☰</p></div>
+          <div id="info-menu"><p>Pytch&nbsp;&nbsp;▾</p>
+            <div id="pytch-dropdown" uk-dropdown="mode:click">
+              <ul class="uk-nav uk-dropdown-nav">
+                <li class="uk-dropdown-close" id="pytch-new-project"><a>New project...</a></li>
+                <li class="uk-nav-divider"></li>
+                <li class="uk-dropdown-close" id="pytch-save-project"><a>Save project</a></li>
+                <li class="uk-dropdown-close" id="pytch-save-project-as"><a>Save project as...</a></li>
+              </ul>
+            </div>
+          </div>
         </div>
         <canvas id="pytch-canvas" width="480" height="360"></canvas>
       </div>
     </div>
 
     <div id="info-panel-tabs">
+      <p id="tab-header-project-list" class="tab-link project-list" data-tab="project-list">My projects</p>
+      <p id="tab-header-project-info" class="tab-link project-info" data-tab="project-info">Project details</p>
       <p id="tab-header-tutorial-list" class="tab-link tutorial-list current"
          data-tab="tutorial-list">List of tutorials</p>
       <p id="tab-header-tutorial" class="tab-link tutorial" data-tab="tutorial">Tutorial</p>
@@ -36,6 +72,22 @@
       <p id="tab-header-stderr" class="tab-link stderr" data-tab="stderr">Errors</p>
     </div>
     <div id="info-panel-content">
+      <div id="tab-pane-project-list" class="tab-content"><div class="project-list-container">
+        <p class="placeholder-while-no-projects">
+          Create a new one, or try a tutorial!  TODO: Or upload from zipfile.</p>
+        <div id="project-list" uk-grid class="uk-grid uk-grid-large"></div>
+      </div></div>
+      <div id="tab-pane-project-info" class="tab-content"><div class="project-info-container">
+        <p class="placeholder-until-project-loaded">
+          Carry on working on one of your projects, create a new one, or try a tutorial!</p>
+        <div class="active-project-info">
+          <h1>NAME GOES HERE</h1>
+          <h2>Assets</h2>
+          <div id="project-info-asset-list"></div>
+          <button id="add-asset-button"
+                  class="uk-button uk-button-primary uk-width-1-3">Add an image or sound file</button>
+        </div>
+      </div></div>
       <div id="tab-pane-tutorial-list" class="tab-content current">
         <div class="tutorial-list-container"></div></div>
       <div id="tab-pane-tutorial" class="tab-content">
@@ -50,6 +102,28 @@
         <!-- Only one of these will be visible at a time: -->
         <p id="exceptions-explanation"></p>
         <div id="exceptions-container"></div></div>
+    </div>
+
+    <div id="create-project-modal" uk-modal>
+      <div class="uk-modal-dialog uk-modal-body">
+        <h2 class="uk-modal-title">Create a new project</h2>
+        <p><input id="new-project-name" class="uk-input" type="text" placeholder="Name of new project"></p>
+        <p class="uk-text-right">
+          <button class="uk-button uk-button-default uk-modal-close" type="button">Cancel</button>
+          <button id="new-project-create" class="uk-button uk-button-primary uk-modal-close" type="button">Create</button>
+        </p>
+      </div>
+    </div>
+
+    <div id="add-asset-modal" uk-modal>
+      <div class="uk-modal-dialog uk-modal-body">
+        <h2 class="uk-modal-title">Upload an image or sound to your project</h2>
+        <div uk-form-custom>
+          <p><input type="file" id="add-asset-file-input">
+            <label for="add-asset-file-input">Choose a file</label></p>
+          <p><button id="asset-add-button" class="uk-button uk-button-primary uk-modal-close">Add file</button></p>
+        </div>
+      </div>
     </div>
   </body>
 </html>
