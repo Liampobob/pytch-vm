@@ -53,6 +53,47 @@ $(document).ready(function() {
         ace_editor.moveCursorTo(0, 0);
     });
 
+    const try_extract_docstring = () => {
+        const source = ace_editor.getValue();
+        const lines_in_reverse_order = (source
+                                        .split("\n")
+                                        .reverse()
+                                        .map(l => l + "\n"));
+        const readline = () => {
+            if (lines_in_reverse_order.length === 0)
+                throw new Sk.builtin.Exception("EOF");
+            return lines_in_reverse_order.pop();
+        };
+
+        const filename = "<stdin.py>";
+        let tok_idx = 0;
+        let docstring = null;
+        Sk._tokenize(filename, readline, "utf-8", (tok) => {
+            if (tok_idx == 0 && tok.type !== Sk.token.tokens.T_ENCODING) {
+                console.log("odd; 0th token wasn't T_ENCODING");
+            }
+            else if (tok_idx == 1 && tok.type === Sk.token.tokens.T_STRING) {
+                const dummy_context = {c_flags: Sk.Parser.CO_FUTURE_UNICODE_LITERALS};
+                const [py_docstring, is_f_string] = Sk.parsestr(dummy_context, tok.string);
+                docstring = py_docstring.v;
+            }
+            else {
+                // Nothing of interest for us beyond first two tokens.
+            }
+            tok_idx += 1;
+        });
+
+        return docstring;
+    }
+
+    const extract_maybe_docstring = () => {
+        try {
+            return try_extract_docstring();
+        } catch {
+            return null;
+        }
+    };
+
 
     ////////////////////////////////////////////////////////////////////////////////
     //
@@ -136,6 +177,17 @@ $(document).ready(function() {
             "project_assets",
         ];
 
+        const project_with_code_versions = async (project_id) => {
+            const project = await db.projects.get(project_id);
+            const code_versions = await (db.project_code_versions
+                                         .where("project_id")
+                                         .equals(project_id)
+                                         .sortBy("seqnum"));
+            const latest_version = code_versions[code_versions.length - 1];
+            const latest_code = await db.code_texts.get(latest_version.code_text_id);
+            return {project, code_versions, latest_text: latest_code.text};
+        }
+
         const create_project = async (name) => {
             const new_project_id = await db.projects.add({name});
             const starting_text_id = await db.code_texts.add({
@@ -150,6 +202,35 @@ $(document).ready(function() {
             });
 
             return new_project_id;
+        };
+
+        const create_project_from_tutorial = async (project_name, tutorial) => {
+            const new_project_id = await create_project(project_name);
+
+            // TODO: More efficient way of doing this than one asset at a time?
+            // Or at least provide some feedback?
+            for (const path of tutorial.project_asset_paths) {
+                let basename = path.substring(path.lastIndexOf('/') + 1);
+
+                const url = `tutorials/${path}`;
+                const resp = await fetch(url);
+                const mime_type = resp.headers.get("Content-Type");
+                const buffer = await resp.arrayBuffer();
+
+                console.log(path, name, mime_type, buffer);
+                const add_result = await add_project_asset(new_project_id, basename, mime_type, buffer);
+                console.log(add_result);
+            }
+
+            return new_project_id;
+        };
+
+        const delete_project = async (project_id) => {
+            await db.transaction("rw", all_table_names, async () => {
+                await db.projects.where("id").equals(project_id).delete();
+                await db.project_code_versions.where("project_id").equals(project_id).delete();
+                await db.project_assets.where("project_id").equals(project_id).delete();
+            });
         };
 
         const latest_code_version = async (project_id) => {
@@ -281,7 +362,7 @@ $(document).ready(function() {
             const project_assets = (db.project_assets
                                     .where("project_id")
                                     .equals(project_id)
-                                    .toArray());
+                                    .sortBy("name"));
             return project_assets;
         };
 
@@ -292,13 +373,21 @@ $(document).ready(function() {
         };
 
         const get_project_asset_by_name = async (project_id, name) => {
+            // HEM HEM
+            name = name.substring(name.lastIndexOf("/") + 1);
+
             const all_assets = await all_project_assets(project_id);
             const matching_assets = all_assets.filter(pa => pa.name == name);
 
             if (matching_assets.length > 1)
-                throw Error(`duplicate asset "${name}" in ${project_id} (should not happen)`);
+                throw new Sk.pytchsupport.PytchAssetLoadError(
+                    `duplicate asset "${name}" in ${project_id} (should not happen)`,
+                    "image-or-sound", name);
+
             if (matching_assets.length == 0)
-                throw Error(`asset "${name}" not found in ${project_id}`);
+                throw new Sk.pytchsupport.PytchAssetLoadError(
+                    `asset "${name}" not found in ${project_id}`,
+                    "image-or-sound", name);
 
             const project_asset = matching_assets[0];
             const asset = await db.assets.get(project_asset.asset_oid);
@@ -307,7 +396,10 @@ $(document).ready(function() {
         };
 
         return {
+            project_with_code_versions,
             create_project,
+            create_project_from_tutorial,
+            delete_project,
             all_projects,
             latest_code,
             create_new_code_text_version,
@@ -355,6 +447,7 @@ $(document).ready(function() {
 
     const projects_controller = (() => {
         let active_project_id = null;
+        let active_docstring_extraction = null;
 
         const activate_project = async (project_id) => {
             active_project_id = project_id;
@@ -373,6 +466,21 @@ $(document).ready(function() {
             await persistence.delete_project_asset(active_project_id, asset_oid);
         };
 
+        const try_refresh_docstring = () => {
+            const maybe_docstring = extract_maybe_docstring();
+            if (maybe_docstring !== null)
+                $(".project-summary").text(maybe_docstring);
+        };
+
+        const schedule_try_refresh_docstring = () => {
+            if (active_docstring_extraction !== null)
+                window.clearTimeout(active_docstring_extraction);
+
+            // TODO: What's a good timeout here?
+            active_docstring_extraction
+                = window.setTimeout(try_refresh_docstring, 1000);
+        };
+
         const refresh_project_info = async () => {
             console.log(`refresh_project_info(): entering for ${active_project_id}`);
 
@@ -381,6 +489,21 @@ $(document).ready(function() {
 
             $(".placeholder-until-project-loaded").hide();
             $(".active-project-info").show();
+
+            const maybe_docstring = extract_maybe_docstring();
+            if (maybe_docstring !== null)
+                $(".project-summary").text(maybe_docstring);
+
+            ace_editor.on("change", schedule_try_refresh_docstring);
+
+            const {project, code_versions, latest_text}
+                  = await persistence.project_with_code_versions(active_project_id);
+            const last_version = code_versions[code_versions.length - 1];
+            $(".active-project-info h1").text(project.name);
+            // TODO: Something more human-friendly.  Broaden 'mtime' to include
+            // when an asset was last added or deleted?
+            const mtime_str = new Date(last_version.mtime).toISOString();
+            $(".active-project-info p.project-last-modified").text(`Code last modified: ${mtime_str}`);
 
             // TODO: Update Project info pane with name and assets.  Possibly
             // ability to revert to previous versions.  Needs thought on how
@@ -394,9 +517,18 @@ $(document).ready(function() {
             asset_list_div.innerHTML = "";
             all_assets.forEach(a => {
                 const asset_div = document.createElement("div");
+                $(asset_div).addClass("uk-width-2-3");
                 asset_div.innerHTML = (
-                    `<code>${a.name}</code> [${a.asset_oid}]`
-                        + '<button class="uk-button uk-button-danger uk-button-small">Delete</button>');
+                    `<h2><code>${a.name}</code></h2>
+                     <p>[${a.asset_oid}] TODO: Replace with a thumbnail
+                       for images and a 'play' button for sounds.</p>
+                     <p class="delete-button-container">
+                       <button class="uk-button uk-button-primary uk-button-small">
+                         Upload new version (todo)
+                       </button>
+                       <button class="uk-button uk-button-danger uk-button-small">
+                         Delete
+                       </button></p>`);
                 $(asset_div.querySelectorAll("button")).click(() => delete_asset(a.asset_oid));
                 asset_list_div.appendChild(asset_div);
             });
@@ -560,6 +692,7 @@ $(document).ready(function() {
     const pytch_menu = (() => {
         $("#pytch-new-project").click(projects_controller.run_modal_creation);
         $("#pytch-save-project").click(projects_controller.save_code_text);
+        $("#pytch-parse").click(() => { console.log(extract_maybe_docstring()); });
 
         return {
         };
@@ -571,6 +704,16 @@ $(document).ready(function() {
     // "My Projects" tab
 
     const my_projects = (() => {
+        const delete_project_if_sure = async (evt, project_id, div) => {
+            console.log("delete_project_if_sure():", project_id);
+            evt.stopPropagation();
+
+            // TOOD: Check for confirmation
+
+            await persistence.delete_project(project_id);
+            await populate_div(div);
+        };
+
         const populate_div = async (div) => {
             const projects = await persistence.all_projects();
             let have_at_least_one_project = false;
@@ -587,8 +730,12 @@ $(document).ready(function() {
                      + `<h3 class="uk-card-title">${p.name}</h3></div>`
                      + `<div class="uk-card-body"><p>Write a docstring to get a summary for ${p.name}.`
                      + ` Until you do, blah blah blah blah</p></div>`
+                     + '<div class="uk-card-footer delete-button-container">'
+                     + '<button class="uk-button uk-button-danger uk-button-small">Delete</button>'
+                     + '</div>'
                      + '</div>'));
                 $(card_elt).click(() => projects_controller.activate_project(p.id));
+                $(card_elt).find("button").click((evt) => delete_project_if_sure(evt, p.id, div));
                 div.appendChild(card_elt);
             });
 
@@ -759,8 +906,9 @@ $(document).ready(function() {
     // Tutorials
 
     class Tutorial {
-        constructor(name, html) {
+        constructor(name, html, project_asset_paths) {
             this.name = name;
+            this.project_asset_paths = project_asset_paths;
 
             let chapters_elt = document.createElement("div");
             chapters_elt.innerHTML = html;
@@ -774,7 +922,14 @@ $(document).ready(function() {
             let response = await fetch(url);
             let html = await response.text();
 
-            return new Tutorial(name, html);
+            let url1 = `tutorials/${name}/project-assets.json`;
+            let resp1 = await fetch(url1);
+            let text = await resp1.text();
+            let asset_paths = JSON.parse(text);
+
+            console.log("asset_paths", asset_paths);
+
+            return new Tutorial(name, html, asset_paths);
         }
 
         chapter(chapter_index) {
@@ -1830,9 +1985,15 @@ $(document).ready(function() {
 
     let running_tutorial_presentation = null;
 
-    const present_tutorial = (tutorial) => {
+    const present_tutorial = async (tutorial) => {
+        const project_id = await persistence.create_project_from_tutorial("My " + tutorial.name,
+                                                                          tutorial);
+        await projects_controller.activate_project(project_id);
+        await my_projects.populate_div(getElt("project-list"));
+
+
         // TODO: When to change this back again?
-        Sk.pytch.project_root = `tutorials/${tutorial.name}`;
+        // Sk.pytch.project_root = `tutorials/${tutorial.name}`;
 
         running_tutorial_presentation
             = new TutorialPresentation(tutorial,
@@ -1852,7 +2013,7 @@ $(document).ready(function() {
 
     const present_tutorial_by_name = async (name) => {
         let tutorial = await Tutorial.async_create(name);
-        present_tutorial(tutorial);
+        await present_tutorial(tutorial);
     };
 
     live_reload_client.connect_to_server();

@@ -48,12 +48,16 @@
           <div id="green-flag"><p>&nbsp;</p></div>
           <div id="red-stop"><p>&nbsp;</p></div>
           <div id="info-menu"><p>Pytch&nbsp;&nbsp;▾</p>
-            <div id="pytch-dropdown" uk-dropdown="mode:click">
+            <div id="pytch-dropdown" uk-dropdown="mode:click;pos:bottom-right">
               <ul class="uk-nav uk-dropdown-nav">
                 <li class="uk-dropdown-close" id="pytch-new-project"><a>New project...</a></li>
                 <li class="uk-nav-divider"></li>
                 <li class="uk-dropdown-close" id="pytch-save-project"><a>Save project</a></li>
                 <li class="uk-dropdown-close" id="pytch-save-project-as"><a>Save project as...</a></li>
+                <li class="uk-nav-divider"></li>
+                <li class="uk-nav-divider"></li>
+                <li class="uk-nav-divider"></li>
+                <li class="uk-dropdown-close" id="pytch-erase-everything"><a>!ERASE WHOLE INDEXED DB!</a></li>
               </ul>
             </div>
           </div>
@@ -73,20 +77,25 @@
     </div>
     <div id="info-panel-content">
       <div id="tab-pane-project-list" class="tab-content"><div class="project-list-container">
-        <p class="placeholder-while-no-projects">
-          Create a new one, or try a tutorial!  TODO: Or upload from zipfile.</p>
+          <div uk-alert class="placeholder-while-no-projects uk-alert-success pytch-start-info-alert">
+            <p>Create a new one, or try a tutorial!  TODO: Or upload from zipfile.</p>
+          </div>
+          <div uk-alert class="placeholder-until-project-loaded uk-alert-success pytch-start-info-alert">
+            <p>Create a new one, or try a tutorial!  TODO: Or upload from zipfile.</p>
+          </div>
         <div id="project-list" uk-grid class="uk-grid uk-grid-large"></div>
       </div></div>
       <div id="tab-pane-project-info" class="tab-content"><div class="project-info-container">
-        <p class="placeholder-until-project-loaded">
-          Carry on working on one of your projects, create a new one, or try a tutorial!</p>
-        <div class="active-project-info">
-          <h1>NAME GOES HERE</h1>
-          <h2>Assets</h2>
-          <div id="project-info-asset-list"></div>
-          <button id="add-asset-button"
-                  class="uk-button uk-button-primary uk-width-1-3">Add an image or sound file</button>
-        </div>
+          <p class="placeholder-until-project-loaded">Carry on working on one of your projects, create a new one, or try a tutorial!</p>
+          <div class="active-project-info">
+            <h1>NAME GOES HERE</h1>
+            <p class="project-last-modified"></p>
+            <p class="project-summary">TODO: Extract summary from docstring if there is one.</p>
+            <h2>Assets</h2>
+            <div id="project-info-asset-list"></div>
+            <button id="add-asset-button"
+                    class="uk-button uk-button-primary uk-width-1-3">Add an image or sound file</button>
+          </div>
       </div></div>
       <div id="tab-pane-tutorial-list" class="tab-content current">
         <div class="tutorial-list-container"></div></div>

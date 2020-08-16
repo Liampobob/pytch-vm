@@ -238,6 +238,43 @@ body {
     user-select: none;
 }
 
+.project-card .delete-button-container {
+    text-align: right;
+}
+
+#project-info-asset-list {
+    margin: 3ex 1rem;
+}
+
+#project-info-asset-list div {
+    background-color: #cec;
+    border-radius: 4px;
+    padding: 8px;
+    margin: 0.75rem 0rem;
+}
+
+#project-info-asset-list * {
+    margin: 0px;
+}
+
+#project-info-asset-list div h2 code {
+    padding: 0px;
+    background-color: #cec;
+    font-size: 1.1rem;
+    font-weight: bold;
+    color: black;
+}
+
+#project-info-asset-list div p.delete-button-container {
+    text-align: right;
+    margin-bottom: 0.5rem;
+}
+
+#project-info-asset-list div p.delete-button-container button {
+    margin-right: 0.5rem;
+}
+
+
 /******************************************************************************/
 /*
  * "Project info" tab
@@ -245,15 +282,30 @@ body {
 
 #tab-pane-project-info .placeholder-until-project-loaded {
     margin: 3ex 3em;
+    height: 3rem;
 }
 
 .project-info-container {
     width: 100%;
+    display: flex;
+    flex-direction: row;
 }
 
 .active-project-info {
-    width: 100%;
-    margin: 3ex 3em;
+    flex-grow: 1;
+    flex-shrink: 1;
+    margin: 3ex 0em;
+    padding-left: 3em;
+    padding-right: 3em;
+}
+
+.active-project-info h2 {
+    font-size: 1.5rem;
+}
+
+.active-project-info button {
+    margin-left: 1rem;
+    margin-bottom: 3rem;
 }
 
 

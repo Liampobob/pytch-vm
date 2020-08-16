@@ -2281,7 +2281,8 @@ function astForIfexpr (c, n) {
  * s is a python-style string literal, including quote characters and u/r/b
  * prefixes. Returns [decoded string object, is-an-fstring]
  */
-function parsestr (c, s) {
+Sk.parsestr =
+function (c, s) {
     var encodeUtf8 = function (s) {
         return unescape(encodeURIComponent(s));
     };
@@ -2665,7 +2666,7 @@ function parsestrplus (c, n) {
         let chstr = CHILD(n, i).value;
         let str, fmode;
         try {
-            let r = parsestr(c, chstr);
+            let r = Sk.parsestr(c, chstr);
             str = r[0];
             fmode = r[1];
         } catch (x) {
@@ -3405,3 +3406,4 @@ Sk.astDump = function (node) {
 
 Sk.exportSymbol("Sk.astFromParse", Sk.astFromParse);
 Sk.exportSymbol("Sk.astDump", Sk.astDump);
+Sk.exportSymbol("Sk.parsestr", Sk.parsestr);
