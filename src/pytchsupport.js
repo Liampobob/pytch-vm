@@ -13,6 +13,9 @@ Sk.pytchsupport = Sk.pytchsupport || {};
 
 ////////////////////////////////////////////////////////////////////////////////
 
+const s_dunder_name = new Sk.builtin.str("__name__");
+
+
 /**
  * Return the imported "pytch" module from the given object (in usage, this
  * object will be a module).  Throw a Skulpt SyntaxError if no "pytch" found.
@@ -118,12 +121,13 @@ Sk.pytchsupport.maybe_auto_configure_project = (async mod => {
                 throw Error(`unknown kind "${kind}" of actor`);
             }
         } catch (err) {
+            const className = Sk.ffi.remapToJs(
+                Sk.builtin.getattr(cls, s_dunder_name)
+            );
+
             throw new Sk.pytchsupport.PytchBuildError({
                 phase: "register-actor",
-                phaseDetail: {
-                    kind,
-                    className: Sk.ffi.remapToJs(Sk.builtin.getattr(cls, new Sk.builtin.str("__name__"))),
-                },
+                phaseDetail: { kind, className },
                 innerError: err,
             });
         }
