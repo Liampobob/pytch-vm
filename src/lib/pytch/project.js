@@ -856,6 +856,7 @@ var $builtinmodule = function (name) {
     class Thread {
         constructor(thread_group, py_callable, py_arg, parent_project) {
             this.thread_group = thread_group;
+            this.is_debug = false;
 
             // Fake a skulpt-suspension-like object so we can treat it the
             // same as any other suspension in the scheduler.
@@ -1018,8 +1019,9 @@ var $builtinmodule = function (name) {
             };
         }
 
-        one_frame() {
-            if (! this.is_running())
+        one_frame(is_debug) {
+            console.log("project.js " + is_debug)
+            if (is_debug || ! this.is_running())
                 return [];
 
             try {
@@ -1179,8 +1181,8 @@ var $builtinmodule = function (name) {
             this.threads.forEach(t => t.maybe_cull());
         }
 
-        one_frame() {
-            let new_thread_groups = map_concat(t => t.one_frame(), this.threads);
+        one_frame(isDebug) {
+            let new_thread_groups = map_concat(t => t.one_frame(isDebug), this.threads);
 
             this.threads = this.threads.filter(t => (! t.is_zombie()));
 
@@ -1528,14 +1530,14 @@ var $builtinmodule = function (name) {
             });
         }
 
-        one_frame() {
+        one_frame(isDebug) {
             this.launch_keypress_handlers();
             this.launch_mouse_click_handlers();
 
             this.thread_groups.forEach(tg => tg.maybe_cull_threads());
             this.thread_groups.forEach(tg => tg.maybe_wake_threads());
 
-            let new_thread_groups = map_concat(tg => tg.one_frame(),
+            let new_thread_groups = map_concat(tg => tg.one_frame(isDebug),
                                                this.thread_groups);
 
             this.thread_groups = new_thread_groups;
