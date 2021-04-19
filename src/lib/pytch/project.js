@@ -856,7 +856,6 @@ var $builtinmodule = function (name) {
     class Thread {
         constructor(thread_group, py_callable, py_arg, parent_project) {
             this.thread_group = thread_group;
-            this.is_debug = false;
 
             // Fake a skulpt-suspension-like object so we can treat it the
             // same as any other suspension in the scheduler.
@@ -952,6 +951,11 @@ var $builtinmodule = function (name) {
 
             case "broadcast": {
                 let message = syscall_args.message;
+                if(this.parent_project.debugger_configs.broadcastBreakpoints.includes(message)) {
+                    this.parent_project.set_should_pause(true);
+                    this.parent_project.set_pause_message('Broadcast ' + message + ' is ready to send.');
+                }
+
                 let new_thread_group
                     = (this.parent_project
                        .thread_group_for_broadcast_receivers(message));
@@ -1019,9 +1023,8 @@ var $builtinmodule = function (name) {
             };
         }
 
-        one_frame(is_debug) {
-            console.log("project.js " + is_debug)
-            if (is_debug || ! this.is_running())
+        one_frame() {
+            if (!this.is_running())
                 return [];
 
             try {
@@ -1181,8 +1184,8 @@ var $builtinmodule = function (name) {
             this.threads.forEach(t => t.maybe_cull());
         }
 
-        one_frame(isDebug) {
-            let new_thread_groups = map_concat(t => t.one_frame(isDebug), this.threads);
+        one_frame() {
+            let new_thread_groups = map_concat(t => t.one_frame(), this.threads);
 
             this.threads = this.threads.filter(t => (! t.is_zombie()));
 
@@ -1341,6 +1344,9 @@ var $builtinmodule = function (name) {
             this.py_project = py_project;
             this.actors = [];
             this.thread_groups = [];
+            this.debugger_configs = null;
+            this.should_pause = false;
+            this.pause_message = '';
 
             // List of 'layer groups'.  Each layer-group is a list.
             // The groups are drawn in order, so things in
@@ -1492,6 +1498,10 @@ var $builtinmodule = function (name) {
         launch_keypress_handlers() {
             let new_keydowns = Sk.pytch.keyboard.drain_new_keydown_events();
             new_keydowns.forEach(keyname => {
+                if(this.debugger_configs.keypressBreakpoints.includes(keyname)) {
+                    this.set_should_pause(true);
+                    this.set_pause_message('Key ' + keyname + ' was pressed.')
+                }
                 let thread_group = new ThreadGroup(`keypress "${keyname}"`);
                 this.actors.forEach(a => a.create_threads_for_keypress(thread_group,
                                                                        keyname));
@@ -1524,26 +1534,46 @@ var $builtinmodule = function (name) {
 
         launch_mouse_click_handlers() {
             let new_clicks = Sk.pytch.mouse.drain_new_click_events();
-
+            if( new_clicks.length > 0 && this.debugger_configs.isClickBreakpointEnabled) {
+                    this.set_should_pause(true);
+                    this.set_pause_message('Click occurred.')
+            }
             new_clicks.forEach(click => {
                 this.launch_click_handlers(click.stage_x, click.stage_y);
             });
         }
 
-        one_frame(isDebug) {
+        set_should_pause(should_pause){
+            this.should_pause = should_pause;
+        }
+
+        set_pause_message(message){
+            this.pause_message = message;
+        }
+
+        one_frame(debuggerConfigurations) {
+            this.debugger_configs = debuggerConfigurations;
+            this.should_pause = false;
+            this.pause_message = "";
+
             this.launch_keypress_handlers();
             this.launch_mouse_click_handlers();
 
             this.thread_groups.forEach(tg => tg.maybe_cull_threads());
             this.thread_groups.forEach(tg => tg.maybe_wake_threads());
 
-            let new_thread_groups = map_concat(tg => tg.one_frame(isDebug),
+            let new_thread_groups = map_concat(tg => tg.one_frame(),
                                                this.thread_groups);
 
             this.thread_groups = new_thread_groups;
 
             if (this.thread_groups.some(tg => tg.raised_exception()))
                 this.kill_all_threads_and_sounds();
+
+            return {
+                    'shouldPause': this.should_pause,
+                    'pauseMessage': this.pause_message,
+                   };
         }
 
         kill_all_threads_and_sounds() {
