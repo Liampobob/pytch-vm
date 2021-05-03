@@ -1559,6 +1559,16 @@ var $builtinmodule = function (name) {
             this.launch_keypress_handlers();
             this.launch_mouse_click_handlers();
 
+            // For the keypress and on click breakpoints to return before the action takes place the runtime must pause immediately.
+            // This is due to the fact that the keypress/click handlers are added to the thread groups before the thread group actions take place.
+            // This behavior is different to the broadcast breakpoints where the threads are added during thread execution.
+            if(this.should_pause) {
+                return {
+                    'shouldPause': this.should_pause,
+                    'pauseMessage': this.pause_message,
+                   };
+            }
+
             this.thread_groups.forEach(tg => tg.maybe_cull_threads());
             this.thread_groups.forEach(tg => tg.maybe_wake_threads());
 
